@@ -1,0 +1,63 @@
+server:
+  # Порт задаёт окружение (облако, контейнер) через переменную PORT; локально — 8080.
+  port: ${PORT:8080}
+  # За обратным прокси адрес клиента берёт из X-Forwarded-For сам Tomcat (RemoteIpValve):
+  # справа налево пропускает доверенные внутренние прокси и берёт первый чужой адрес.
+  # Левые адреса пишет клиент и может подделать — им не верим.
+  forward-headers-strategy: native
+
+spring:
+  application:
+    name: aromatica
+  jackson:
+    deserialization:
+      # необязательное число, которого нет в запросе, — ноль, как в Jackson 2 (Jackson 3 отвечал бы 400)
+      fail-on-null-for-primitives: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/aromatica}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    # Ленивые коллекции живут только внутри транзакций сервиса — без «спасающего»
+    # open-in-view (он маскирует N+1 и держит соединение на всё время запроса).
+    open-in-view: false
+    # SQL-лог включается локально (config/application.yaml), в проде выключен.
+    show-sql: false
+    properties:
+      hibernate:
+        # ленивые коллекции (строки броней, условия акций, пункты задач) подгружаются
+        # пачками по 50 владельцев, а не отдельным запросом на каждого
+        default_batch_fetch_size: 50
+        # вставки одного типа уходят пачками (движения документа, строки, журналы)
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+  servlet:
+    multipart:
+      # фото продукта — до 3 МБ (ProductModelImageServiceImpl.MAX_BYTES); по умолчанию Spring
+      # режет на 1 МБ, и файл побольше падал бы ещё до проверки в сервисе
+      max-file-size: 3MB
+      max-request-size: 4MB
+
+# Документация API (Swagger UI на /swagger-ui.html). По умолчанию выключена, чтобы
+# не светить API на стенде; локально включается в config/application.yaml или API_DOCS_ENABLED.
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:false}
+    operations-sorter: alpha
+    tags-sorter: alpha
+
+# Авторизация. jwt-secret задаётся только в git-ignored config/application.yaml
+# или env APP_AUTH_JWT_SECRET (>= 32 байт). Access — короткий stateless-JWT;
+# refresh хранится в БД (хэшем), ротируется, окно скользящее (простой > срока = логин).
+app:
+  auth:
+    access-token-ttl-minutes: 30
+    refresh-token-ttl-minutes: 60
